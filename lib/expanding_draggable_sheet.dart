@@ -522,6 +522,10 @@ class _RenderExpandingSliver extends RenderSliverSingleBoxAdapter {
   void paint(PaintingContext context, Offset offset) {
     final Rect bounds =
     offset & Size(constraints.crossAxisExtent, geometry!.paintExtent);
+
+    // Make the header transparent when covered by the app bar. If the sheet is
+    // popped without being scrolled down, the header won't block sheet content.
+    final color = _animationPosition == 1 ? Colors.transparent : this.color;
     final Paint paint = Paint()..color = color;
 
     final topLeftRadius = borderRadius?.topLeft ?? const Radius.circular(28);
