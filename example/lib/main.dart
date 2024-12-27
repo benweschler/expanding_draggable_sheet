@@ -30,21 +30,13 @@ class MyApp extends StatelessWidget {
                 ),
               ),
               appBarBuilder: (context) => AppBar(
-                leading: IconButton(
-                  onPressed: Navigator.of(context).pop,
-                  //onPressed: Navigator.of(context).pop,
-                  icon: const Icon(Icons.arrow_back),
-                ),
-                centerTitle: false,
-                title: const Row(
-                  children: [Text('Gallery'), Icon(Icons.arrow_drop_down)],
-                ),
+                title: const Text('Expanding Draggable Sheet'),
                 backgroundColor: Colors.white,
               ),
               child: Column(
                 children: List.generate(
                   40,
-                      (index) => ListTile(title: Text('Item #$index')),
+                  (index) => ListTile(title: Text('Item #$index')),
                 ),
               ),
             ),

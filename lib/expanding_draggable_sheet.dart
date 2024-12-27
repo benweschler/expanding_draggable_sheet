@@ -43,7 +43,8 @@ class ExpandingDraggableSheet extends StatefulWidget {
 
   /// How the sheet should snap to its expanded position.
   ///
-  /// See [SheetSnapBehavior] for documentation.
+  /// Defaults to [SheetSnapBehavior.midpoint]. See [SheetSnapBehavior] for
+  /// documentation.
   final SheetSnapBehavior snapBehavior;
 
   /// A callback to build the app bar. The app bar will not be interactive until
@@ -64,7 +65,7 @@ class ExpandingDraggableSheet extends StatefulWidget {
     this.headerChild,
     this.sheetBorderRadius,
     this.backgroundColor,
-    this.snapBehavior = SheetSnapBehavior.start,
+    this.snapBehavior = SheetSnapBehavior.midpoint,
     required this.appBarBuilder,
     required this.child,
   }) : assert(minimumChildSize <= initialChildSize);
@@ -81,8 +82,8 @@ class _ExpandingDraggableSheetState extends State<ExpandingDraggableSheet> {
   // Only accounts for bottom overscroll, since top overscroll immediately
   // dismisses the sheet.
   final _overscrollNotifier = ValueNotifier(0.0);
-  GlobalKey<_AnimatedAppBarState>? _appBarKey;
-  OverlayEntry? _appBarOverlay;
+  final _appBarKey = GlobalKey<_AnimatedAppBarState>();
+  final _appBarOverlayController = OverlayPortalController();
 
   @override
   void initState() {
@@ -115,9 +116,6 @@ class _ExpandingDraggableSheetState extends State<ExpandingDraggableSheet> {
 
   @override
   void dispose() {
-    _appBarOverlay?.remove();
-    _appBarOverlay = null;
-    _appBarKey = null;
     _headerAnimationPositionNotifier.removeListener(_onShowAppBar);
     _controller.dispose();
     super.dispose();
@@ -157,25 +155,10 @@ class _ExpandingDraggableSheetState extends State<ExpandingDraggableSheet> {
 
   void _onShowAppBar() {
     final animationPosition = _headerAnimationPositionNotifier.value;
-    if (animationPosition > 0 && _appBarOverlay == null) {
-      _appBarKey = GlobalKey();
-      _appBarOverlay = OverlayEntry(
-        builder: (_) => Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: _AnimatedAppBar(
-            key: _appBarKey,
-            animationNotifier: _headerAnimationPositionNotifier,
-            builder: widget.appBarBuilder,
-          ),
-        ),
-      );
-      Overlay.of(context).insert(_appBarOverlay!);
-    } else if (animationPosition == 0 && _appBarOverlay != null) {
-      _appBarOverlay!.remove();
-      _appBarKey = null;
-      _appBarOverlay = null;
+    if (animationPosition > 0 && !_appBarOverlayController.isShowing) {
+      _appBarOverlayController.show();
+    } else if (animationPosition == 0 && _appBarOverlayController.isShowing) {
+      _appBarOverlayController.hide();
     }
   }
 
@@ -219,13 +202,30 @@ class _ExpandingDraggableSheetState extends State<ExpandingDraggableSheet> {
     return PopScope(
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) {
-          _appBarKey?.currentState?.fadeOut();
+          _appBarKey.currentState?.fadeOut();
         }
       },
       child: MediaQuery(
         data: viewMediaQuery,
         child: Stack(
           children: [
+            // Use an OverlayPortal to show the app bar so that features that
+            // depend on the app bar's context, like automaticallyImplyLeading,
+            // still work. Target the root Overlay in case there are any closer
+            // Overlays that are smaller than the size of the screen.
+            OverlayPortal.targetsRootOverlay(
+              controller: _appBarOverlayController,
+              overlayChildBuilder: (context) => Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: _AnimatedAppBar(
+                  key: _appBarKey,
+                  animationNotifier: _headerAnimationPositionNotifier,
+                  builder: widget.appBarBuilder,
+                ),
+              ),
+            ),
             // If the scrollable is overscrolled past its max scroll extent,
             // the overscrolled portion will be a transparent hole with no
             // background color. Fill in this hole with a container that resizes
