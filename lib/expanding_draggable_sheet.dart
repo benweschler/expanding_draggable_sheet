@@ -77,6 +77,9 @@ class ExpandingDraggableSheet extends StatefulWidget {
 class _ExpandingDraggableSheetState extends State<ExpandingDraggableSheet> {
   late final ScrollController _controller;
   final _headerAnimationPositionNotifier = ValueNotifier(0.0);
+
+  // Only accounts for bottom overscroll, since top overscroll immediately
+  // dismisses the sheet.
   final _overscrollNotifier = ValueNotifier(0.0);
   GlobalKey<_AnimatedAppBarState>? _appBarKey;
   OverlayEntry? _appBarOverlay;
@@ -86,11 +89,11 @@ class _ExpandingDraggableSheetState extends State<ExpandingDraggableSheet> {
     super.initState();
     _controller = ScrollController(
       onAttach: (position) {
-        position.addListener(_onSwipeDismiss);
+        position.addListener(_handleTopOverscroll);
         position.addListener(_handleBottomOverscroll);
       },
       onDetach: (position) {
-        position.removeListener(_onSwipeDismiss);
+        position.removeListener(_handleTopOverscroll);
         position.removeListener(_handleBottomOverscroll);
       },
     );
@@ -120,6 +123,14 @@ class _ExpandingDraggableSheetState extends State<ExpandingDraggableSheet> {
     super.dispose();
   }
 
+  // Handles swipe-to-dismiss on platforms where overscroll is allowed, like
+  // iOS.
+  void _handleTopOverscroll() {
+    if (_controller.position.pixels < _controller.position.minScrollExtent) {
+      _onSwipeDismiss();
+    }
+  }
+
   void _handleBottomOverscroll() {
     final overscroll =
         _controller.offset - _controller.position.maxScrollExtent;
@@ -128,6 +139,20 @@ class _ExpandingDraggableSheetState extends State<ExpandingDraggableSheet> {
     } else if (_overscrollNotifier.value > 0) {
       _overscrollNotifier.value = 0;
     }
+  }
+
+  // Handles swipe-to-dismiss on platforms where overscroll is not
+  // allowed, like Android.
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification is ScrollUpdateNotification) {
+      final scrollDelta = notification.scrollDelta ?? 0.0;
+      if (notification.metrics.pixels == 0 && scrollDelta < 0) {
+        _onSwipeDismiss();
+      }
+    }
+
+    // Always allow notifications to bubble up.
+    return false;
   }
 
   void _onShowAppBar() {
@@ -155,12 +180,10 @@ class _ExpandingDraggableSheetState extends State<ExpandingDraggableSheet> {
   }
 
   void _onSwipeDismiss() {
-    if (_controller.position.pixels < _controller.position.minScrollExtent) {
-      Navigator.of(context).pop();
-      // If the listener is not removed, it will continue to fire as the sheet
-      // continues to be over scrolled, popping the Navigator more than once.
-      _controller.position.removeListener(_onSwipeDismiss);
-    }
+    Navigator.of(context).pop();
+    // If the listener is not removed, it will continue to fire as the sheet
+    // continues to be over scrolled, popping the Navigator more than once.
+    _controller.position.removeListener(_handleTopOverscroll);
   }
 
   void _updateHeaderAnimationPosition(position) {
@@ -219,52 +242,58 @@ class _ExpandingDraggableSheetState extends State<ExpandingDraggableSheet> {
                 ),
               ),
             ),
-            CustomScrollView(
-              controller: _controller,
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Semantics(
-                    label: MaterialLocalizations.of(context)
-                        .modalBarrierDismissLabel,
-                    container: true,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: Navigator.of(this.context).pop,
-                      child: SizedBox(
-                        height: MediaQuery.of(context).size.height *
-                            (1 - widget.minimumChildSize),
+            NotificationListener<ScrollNotification>(
+              onNotification: _handleScrollNotification,
+              child: CustomScrollView(
+                controller: _controller,
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Semantics(
+                      label: MaterialLocalizations.of(context)
+                          .modalBarrierDismissLabel,
+                      container: true,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        // Ignore drag-based scrolling gestures.
+                        onVerticalDragUpdate: (_) {},
+                        onVerticalDragStart: (_) {},
+                        onTap: Navigator.of(this.context).pop,
+                        child: SizedBox(
+                          height: MediaQuery.of(context).size.height *
+                              (1 - widget.minimumChildSize),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                ListenableBuilder(
-                  listenable: _controller,
-                  builder: (context, child) => _ExpandingSliver(
-                    baseHeight: paddingHeight,
-                    targetHeight: appBarHeight,
-                    color: backgroundColor,
-                    borderRadius: widget.sheetBorderRadius,
-                    snapBehavior: widget.snapBehavior,
-                    parentScrollController: _controller,
-                    scrollableScrollOffset: _controller.offset,
-                    updateHeaderAnimationPosition:
-                    _updateHeaderAnimationPosition,
-                    child: ValueListenableBuilder(
-                      valueListenable: _headerAnimationPositionNotifier,
-                      builder: (context, position, _) => Opacity(
-                        opacity: 1 - position,
-                        child: widget.headerChild,
+                  ListenableBuilder(
+                    listenable: _controller,
+                    builder: (context, child) => _ExpandingSliver(
+                      baseHeight: paddingHeight,
+                      targetHeight: appBarHeight,
+                      color: backgroundColor,
+                      borderRadius: widget.sheetBorderRadius,
+                      snapBehavior: widget.snapBehavior,
+                      parentScrollController: _controller,
+                      scrollableScrollOffset: _controller.offset,
+                      updateHeaderAnimationPosition:
+                          _updateHeaderAnimationPosition,
+                      child: ValueListenableBuilder(
+                        valueListenable: _headerAnimationPositionNotifier,
+                        builder: (context, position, _) => Opacity(
+                          opacity: 1 - position,
+                          child: widget.headerChild,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                SliverToBoxAdapter(
-                  child: ColoredBox(
-                    color: backgroundColor,
-                    child: widget.child,
+                  SliverToBoxAdapter(
+                    child: ColoredBox(
+                      color: backgroundColor,
+                      child: widget.child,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -371,9 +400,9 @@ class _ExpandingSliver extends SingleChildRenderObjectWidget {
 
   @override
   void updateRenderObject(
-      BuildContext context,
-      _RenderExpandingSliver renderObject,
-      ) {
+    BuildContext context,
+    _RenderExpandingSliver renderObject,
+  ) {
     renderObject.scrollableScrollOffset = scrollableScrollOffset;
   }
 }
@@ -414,8 +443,8 @@ class _RenderExpandingSliver extends RenderSliverSingleBoxAdapter {
   // Distance until sliver hits area to start transforming.
   double get _extentToTransform =>
       constraints.precedingScrollExtent -
-          _scrollableScrollOffset -
-          _expandedHeight;
+      _scrollableScrollOffset -
+      _expandedHeight;
 
   late double _previousHeight = baseHeight;
   double? _heightAdjustment;
@@ -492,7 +521,7 @@ class _RenderExpandingSliver extends RenderSliverSingleBoxAdapter {
     }
 
     double interpolatedHeight =
-    lerpDouble(baseHeight, _expandedHeight, _animationPosition)!;
+        lerpDouble(baseHeight, _expandedHeight, _animationPosition)!;
     interpolatedHeight =
         min(interpolatedHeight, constraints.viewportMainAxisExtent);
 
@@ -521,7 +550,7 @@ class _RenderExpandingSliver extends RenderSliverSingleBoxAdapter {
   @override
   void paint(PaintingContext context, Offset offset) {
     final Rect bounds =
-    offset & Size(constraints.crossAxisExtent, geometry!.paintExtent);
+        offset & Size(constraints.crossAxisExtent, geometry!.paintExtent);
 
     // Make the header transparent when covered by the app bar. If the sheet is
     // popped without being scrolled down, the header won't block sheet content.
